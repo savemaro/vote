@@ -21,6 +21,7 @@ contract Vote is PermissionGroups {
         string content;             //  提议内容
         uint deposit;               //  锁定押金
         uint voteCount;             //  临时得票用于显示
+        address[] currentVoters;    //  投票人列表
         mapping(address => uint) recs;          //  记录
     }
 
@@ -86,7 +87,8 @@ contract Vote is PermissionGroups {
             proposer: msg.sender,
             content: proposal,
             deposit: msg.value,
-            voteCount: 0
+            voteCount: 0,
+            currentVoters: new address[](0)
         });
 
         proposals[proposalID] = p;
@@ -108,16 +110,19 @@ contract Vote is PermissionGroups {
             proposals[pID].voteCount = proposals[pID].voteCount.sub(vAmount);
             proposals[pID].recs[msg.sender] = 0;
             // 这里可以忽略 voters中的记录
+            // 也忽略currentVoters中的记录
         }
 
         voteTarget[msg.sender] = id;
         proposals[id].recs[msg.sender] = msg.sender.balance;
         proposals[id].voteCount = proposals[id].voteCount.add(msg.sender.balance);
+        proposals[id].currentVoters.push(msg.sender);
+        voters.push(msg.sender);
         M(proposalID, 2, msg.sender, msg.sender.balance);
 
     }
 
-    // 计票
+    // 计票, index 遍历voters
     function counting(uint startIndex, uint len) public onlyAdmin {
         require(block.timestamp > voteEndTime);
         for (uint i = startIndex; i < startIndex + len; i++) {
@@ -130,7 +135,7 @@ contract Vote is PermissionGroups {
         }
     }
 
-
+    // 退款， index遍历proposals
     function refund(uint startIndex, uint len) public  {
         require(block.timestamp > proposeEndTime);
         for (uint i = startIndex; i < startIndex+len ; i++) {
@@ -142,6 +147,20 @@ contract Vote is PermissionGroups {
                 M(i, 3, proposer, deposit);
             }
         }        
+    }
+
+    function displayRecs(uint id, uint startIndex, uint len) public view returns (address[] memory, uint[] memory) {
+        address[] memory addrs = new address[](len);
+        uint[] memory balance = new uint[](len);
+        for (uint i= startIndex; i < startIndex + len; i++ ) {
+            if (proposals[id].voteCount > 0) {
+                if (proposals[id].currentVoters.length > i) {
+                    addrs[i] = proposals[id].currentVoters[i];
+                    balance[i] = proposals[id].recs[proposals[id].currentVoters[i]];
+                }
+            }
+        }
+        return (addrs, balance);
     }
 
 }
