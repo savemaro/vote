@@ -22,6 +22,7 @@ contract Vote is PermissionGroups {
         uint deposit;               //  锁定押金
         uint voteCount;             //  临时得票用于显示
         address[] currentVoters;    //  投票人列表
+        bool disabled;              //  使得这个投票失效
         mapping(address => uint) recs;          //  记录
     }
 
@@ -43,7 +44,7 @@ contract Vote is PermissionGroups {
 
 
     // p是总的序号，对应proposalID
-    // a是行为， 1 是提出提案， 2 是投票提案 3 退钱
+    // a是行为， 1 是提出提案， 2 是投票提案 3 退钱 4 修改提案内容 5 失效
     // addr是对应的用户地址
     // amount是对应的金额，提案的时候是锁定的押金，投票的时候是当前的balance
     event M(uint indexed p, uint indexed a, address indexed addr,  uint amount);
@@ -88,7 +89,8 @@ contract Vote is PermissionGroups {
             content: proposal,
             deposit: msg.value,
             voteCount: 0,
-            currentVoters: new address[](0)
+            currentVoters: new address[](0),
+            disabled: false
         });
 
         proposals[proposalID] = p;
@@ -97,11 +99,32 @@ contract Vote is PermissionGroups {
         proposalID += 1;
     }
 
+    // 修改提议
+    function editProposal(uint id, string proposal) public {
+        require(block.timestamp >= proposeStartTime && block.timestamp <= proposeEndTime);
+        require(msg.sender == proposals[id].proposer);
+        proposals[id].content = proposal;
+        M(id, 4, msg.sender, 0);
+
+    }
+
+    // disable提议
+    function disableProposal(uint id) public {
+        require(block.timestamp >= proposeStartTime && block.timestamp <= proposeEndTime);
+        require(msg.sender == proposals[id].proposer);
+        proposals[id].disabled = true;
+        uint deposit = proposals[id].deposit;
+        proposals[id].deposit = 0;
+        msg.sender.transfer(deposit);
+        M(id, 5, msg.sender, 0);
+    }
+
     // 投票
     function vote(uint id) public {
         require(id>0 && id < proposalID);
         require(msg.sender.balance >= minVoteBalance);
         require(block.timestamp >= proposeEndTime && block.timestamp <= voteEndTime);
+        require(proposals[id].disabled == false);
 
         // 先检查这个地址是否投过票
         if (voteTarget[msg.sender] > 0) {
@@ -142,9 +165,11 @@ contract Vote is PermissionGroups {
             if (i < proposalID) {
                 address proposer = proposals[i].proposer;
                 uint deposit = proposals[i].deposit;
-                proposals[i].deposit = 0;
-                proposer.transfer(deposit);
-                M(i, 3, proposer, deposit);
+                if (deposit > 0) {
+                    proposals[i].deposit = 0;
+                    proposer.transfer(deposit);
+                    M(i, 3, proposer, deposit);
+                }
             }
         }        
     }
